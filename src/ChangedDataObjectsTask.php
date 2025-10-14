@@ -11,6 +11,8 @@ use SilverStripe\ORM\DB;
 use SilverStripe\Security\LoginAttempt;
 use SilverStripe\Security\RememberLoginHash;
 use SilverStripe\SessionManager\Models\LoginSession;
+use SilverStripe\Versioned\ChangeSet;
+use SilverStripe\Versioned\ChangeSetItem;
 
 class ChangedDataObjectsTask extends BuildTask
 {
@@ -23,6 +25,8 @@ class ChangedDataObjectsTask extends BuildTask
         RememberLoginHash::class,
         LoginSession::class,
         LoginAttempt::class,
+        ChangeSet::class,
+        ChangeSetItem::class,
     ];
     private static $skip_tables = [
         'RememberLoginHash',
@@ -39,16 +43,14 @@ class ChangedDataObjectsTask extends BuildTask
 
         $timestamp = time() - ($daysBack * 86400);
         $dateBack = date('Y-m-d H:i:s', $timestamp);
+        $alreadyDone = [];
 
         DB::alteration_message('<h2>Using date: ' . $dateBack . "</h2>");
         $objectTables = [];
-        $classes = ClassInfo::subclassesFor(DataObject::class);
+        $classes = ClassInfo::subclassesFor(DataObject::class, false);
         $classesToCheck = [];
         foreach ($classes as $key => $className) {
             $objectTables[$className] = $this->getTableForClass($className);
-            if ($className === DataObject::class) {
-                continue;
-            }
             if (in_array($className, $this->config()->get('skip_classes'))) {
                 continue;
             }
@@ -61,6 +63,36 @@ class ChangedDataObjectsTask extends BuildTask
             if ($results->exists()) {
                 DB::alteration_message('<strong>DataObjects of class ' . $className . ' changed since ' . $dateBack . '</strong>');
                 foreach ($results as $record) {
+                    $alreadyDone[$record->ClassName . '-' . $record->ID] = true;
+                    $title = $record->getTitle();
+                    $cmsEditLink = null;
+                    $link = null;
+                    if ($record->hasMethod('CMSEditLink')) {
+                        $cmsEditLink = $record->CMSEditLink();
+                    }
+                    if ($record->hasMethod('Link')) {
+                        $link = $record->CMSEditLink();
+                    }
+                    $cmsEditLink = $cmsEditLink ? '<a href="/' . $cmsEditLink . '">✏️</a>' : '<del>✏️</del>';
+                    $link = $link ? '<a href="/' . $link . '">🔗</a>' : '<del>🔗</del>';
+                    DB::alteration_message(
+                        ' -- ' . $cmsEditLink . ' ' .
+                            $link . ' ' .
+                            '<strong>ID:</strong> ' . $record->ID . ', ' .
+                            '<strong>Title:</strong> ' . $title . ', ' .
+                            '<strong>LastEdited:</strong> ' . $record->LastEdited
+                    );
+                }
+                DB::alteration_message("---");
+            }
+        }
+        DB::alteration_message('<h2>Check Change Sets</h2>');
+        $changeSets = ChangeSet::get()->filter('Created:GreaterThan', $dateBack);
+        foreach ($changeSets as $changeSet) {
+            $items = $changeSet->Changes();
+            if ($items->exists()) {
+                foreach ($items as $item) {
+                    $record = $item->Object();
                     $title = $record->getTitle();
                     $cmsEditLink = null;
                     $link = null;
@@ -84,6 +116,7 @@ class ChangedDataObjectsTask extends BuildTask
             }
         }
 
+        DB::alteration_message('<h2>Additional tables with a LastEdited field:</h2>');
         $allTables = [];
         $rows = DB::query('SHOW TABLES');
         $objectTables += $this->getBaseTables();
