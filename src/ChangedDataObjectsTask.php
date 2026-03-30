@@ -2,23 +2,27 @@
 
 namespace Sunnysidep\RecentlyChanged;
 
+use SilverStripe\Core\ClassInfo;
 use SilverStripe\Dev\BuildTask;
 use SilverStripe\ORM\DataObject;
-use SilverStripe\Core\ClassInfo;
 use SilverStripe\ORM\DB;
+use SilverStripe\PolyExecution\PolyOutput;
 use SilverStripe\Security\LoginAttempt;
 use SilverStripe\Security\RememberLoginHash;
 use SilverStripe\SessionManager\Models\LoginSession;
 use SilverStripe\Versioned\ChangeSet;
 use SilverStripe\Versioned\ChangeSetItem;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 
 class ChangedDataObjectsTask extends BuildTask
 {
-    protected $title = 'Changed DataObjects';
+    protected static string $commandName = 'changed-data-objects';
 
-    protected $description = 'Lists DataObjects and tables with LastEdited changed since a computed date based on days back.';
+    protected string $title = 'Changed DataObjects';
 
-    private static $segment = 'changed-data-objects';
+    protected static string $description = 'Lists DataObjects and tables with LastEdited changed since a computed date based on days back.';
 
     private static $skip_classes = [
         RememberLoginHash::class,
@@ -34,23 +38,18 @@ class ChangedDataObjectsTask extends BuildTask
         'LoginAttempt',
     ];
 
-    /** @TODO SSU RECTOR UPGRADE TASK - BuildTask::run: Added new parameter $output in BuildTask::run()
-     * @TODO SSU RECTOR UPGRADE TASK - BuildTask::run: Changed type of parameter $request in BuildTask::run() from dynamic to Symfony\Component\Console\Input\InputInterface
-     * @TODO SSU RECTOR UPGRADE TASK - BuildTask::run: Renamed parameter $request in BuildTask::run() to $input
-     * @TODO SSU RECTOR UPGRADE TASK - BuildTask::run: Changed return type for method BuildTask::run() from dynamic to int
-     */
-    public function run($request)
+    protected function execute(InputInterface $input, PolyOutput $output): int
     {
-        $daysBackParam = $request->getVar('daysBack') ?: 30;
-        $daysBack = (float)$daysBackParam;
+        $daysBackParam = $input->getOption('days-back') ?? 30;
+        $daysBack = (float) $daysBackParam;
 
-        echo $this->getInputForm($daysBack);
+        $output->writeln($this->getInputForm($daysBack));
 
         $timestamp = time() - ($daysBack * 86400);
         $dateBack = date('Y-m-d H:i:s', $timestamp);
         $alreadyDone = [];
 
-        DB::alteration_message('<h2>Using date: ' . $dateBack . "</h2>");
+        $output->writeln('<h2>Using date: ' . $dateBack . '</h2>');
         $objectTables = [];
         $classes = ClassInfo::subclassesFor(DataObject::class, false);
         $classesToCheck = [];
@@ -68,7 +67,7 @@ class ChangedDataObjectsTask extends BuildTask
         foreach ($classesToCheck as $className) {
             $results = $className::get()->filter('LastEdited:GreaterThan', $dateBack);
             if ($results->exists()) {
-                DB::alteration_message('<strong>DataObjects of class ' . $className . ' changed since ' . $dateBack . '</strong>');
+                $output->writeln('<strong>DataObjects of class ' . $className . ' changed since ' . $dateBack . '</strong>');
                 foreach ($results as $record) {
                     $alreadyDone[$record->ClassName . '-' . $record->ID] = true;
                     $title = $record->getTitle();
@@ -84,7 +83,7 @@ class ChangedDataObjectsTask extends BuildTask
 
                     $cmsEditLink = $cmsEditLink ? '<a href="/' . $cmsEditLink . '">✏️</a>' : '<del>✏️</del>';
                     $link = $link ? '<a href="/' . $link . '">🔗</a>' : '<del>🔗</del>';
-                    DB::alteration_message(
+                    $output->writeln(
                         ' -- ' . $cmsEditLink . ' ' .
                             $link . ' ' .
                             '<strong>ID:</strong> ' . $record->ID . ', ' .
@@ -93,11 +92,11 @@ class ChangedDataObjectsTask extends BuildTask
                     );
                 }
 
-                DB::alteration_message("---");
+                $output->writeln('---');
             }
         }
 
-        DB::alteration_message('<h2>Check Change Sets</h2>');
+        $output->writeln('<h2>Check Change Sets</h2>');
         $changeSets = ChangeSet::get()->filter(['Created:GreaterThan' => $dateBack]);
         foreach ($changeSets as $changeSet) {
             $items = $changeSet->Changes();
@@ -117,7 +116,7 @@ class ChangedDataObjectsTask extends BuildTask
 
                     $cmsEditLink = $cmsEditLink ? '<a href="/' . $cmsEditLink . '">✏️</a>' : '<del>✏️</del>';
                     $link = $link ? '<a href="/' . $link . '">🔗</a>' : '<del>🔗</del>';
-                    DB::alteration_message(
+                    $output->writeln(
                         ' -- ' . $cmsEditLink . ' ' .
                             $link . ' ' .
                             '<strong>ID:</strong> ' . $record->ID . ', ' .
@@ -126,11 +125,11 @@ class ChangedDataObjectsTask extends BuildTask
                     );
                 }
 
-                DB::alteration_message("---");
+                $output->writeln('---');
             }
         }
 
-        DB::alteration_message('<h2>Additional tables with a LastEdited field:</h2>');
+        $output->writeln('<h2>Additional tables with a LastEdited field:</h2>');
         $allTables = [];
         $rows = DB::query('SHOW TABLES');
         $objectTables += $this->getBaseTables();
@@ -162,19 +161,21 @@ class ChangedDataObjectsTask extends BuildTask
             $recordsQuery = DB::query(sprintf("SELECT * FROM `%s` WHERE LastEdited > '%s'", $tableName, $dateBack));
             $recordCount = $recordsQuery->numRecords();
             if ($recordCount > 0) {
-                DB::alteration_message('<strong>Table ' . $tableName . ' has ' . $recordCount . ' record(s) updated since ' . $dateBack . '</strong>');
+                $output->writeln('<strong>Table ' . $tableName . ' has ' . $recordCount . ' record(s) updated since ' . $dateBack . '</strong>');
                 foreach ($recordsQuery as $row) {
                     $recordId = $row['ID'] ?? '(no ID)';
-                    DB::alteration_message(' -- Record ID: ' . $recordId . ', LastEdited: ' . $row['LastEdited']);
+                    $output->writeln(' -- Record ID: ' . $recordId . ', LastEdited: ' . $row['LastEdited']);
                 }
             }
         }
 
         // Optionally, list the additional tables without a LastEdited field.
-        DB::alteration_message('<h2>Additional tables WITHOUT a LastEdited field:</h2>');
+        $output->writeln('<h2>Additional tables WITHOUT a LastEdited field:</h2>');
         foreach ($additionalTablesNoLastEdited as $tableName) {
-            DB::alteration_message(' - ' . $tableName);
+            $output->writeln(' - ' . $tableName);
         }
+
+        return Command::SUCCESS;
     }
 
     protected function getInputForm(float $defaultDaysBack): string
@@ -185,6 +186,16 @@ class ChangedDataObjectsTask extends BuildTask
         $html .= "<input type='submit' value='Submit'>";
         $html .= '</form>';
         return $html;
+    }
+
+    protected function getOptions(): array
+    {
+        return array_merge(
+            parent::getOptions(),
+            [
+                new InputOption('days-back', 'd', InputOption::VALUE_OPTIONAL, 'Number of days to check for changes', 30),
+            ]
+        );
     }
 
     protected function getTableForClass(string $className): string
