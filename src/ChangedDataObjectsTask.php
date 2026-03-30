@@ -2,8 +2,6 @@
 
 namespace Sunnysidep\RecentlyChanged;
 
-use SilverStripe\Control\HTTPRequest;
-use SilverStripe\Core\Injector\Injector;
 use SilverStripe\Dev\BuildTask;
 use SilverStripe\ORM\DataObject;
 use SilverStripe\Core\ClassInfo;
@@ -17,6 +15,7 @@ use SilverStripe\Versioned\ChangeSetItem;
 class ChangedDataObjectsTask extends BuildTask
 {
     protected $title = 'Changed DataObjects';
+
     protected $description = 'Lists DataObjects and tables with LastEdited changed since a computed date based on days back.';
 
     private static $segment = 'changed-data-objects';
@@ -28,6 +27,7 @@ class ChangedDataObjectsTask extends BuildTask
         ChangeSet::class,
         ChangeSetItem::class,
     ];
+
     private static $skip_tables = [
         'RememberLoginHash',
         'LoginSession',
@@ -54,8 +54,10 @@ class ChangedDataObjectsTask extends BuildTask
             if (in_array($className, $this->config()->get('skip_classes'))) {
                 continue;
             }
+
             $classesToCheck[] = $this->getBaseClass($className);
         }
+
         $classesToCheck = array_unique($classesToCheck);
 
         foreach ($classesToCheck as $className) {
@@ -70,9 +72,11 @@ class ChangedDataObjectsTask extends BuildTask
                     if ($record->hasMethod('CMSEditLink')) {
                         $cmsEditLink = $record->CMSEditLink();
                     }
+
                     if ($record->hasMethod('Link')) {
                         $link = $record->CMSEditLink();
                     }
+
                     $cmsEditLink = $cmsEditLink ? '<a href="/' . $cmsEditLink . '">✏️</a>' : '<del>✏️</del>';
                     $link = $link ? '<a href="/' . $link . '">🔗</a>' : '<del>🔗</del>';
                     DB::alteration_message(
@@ -83,11 +87,13 @@ class ChangedDataObjectsTask extends BuildTask
                             '<strong>LastEdited:</strong> ' . $record->LastEdited
                     );
                 }
+
                 DB::alteration_message("---");
             }
         }
+
         DB::alteration_message('<h2>Check Change Sets</h2>');
-        $changeSets = ChangeSet::get()->filter('Created:GreaterThan', $dateBack);
+        $changeSets = ChangeSet::get()->filter(['Created:GreaterThan' => $dateBack]);
         foreach ($changeSets as $changeSet) {
             $items = $changeSet->Changes();
             if ($items->exists()) {
@@ -99,9 +105,11 @@ class ChangedDataObjectsTask extends BuildTask
                     if ($record->hasMethod('CMSEditLink')) {
                         $cmsEditLink = $record->CMSEditLink();
                     }
+
                     if ($record->hasMethod('Link')) {
                         $link = $record->CMSEditLink();
                     }
+
                     $cmsEditLink = $cmsEditLink ? '<a href="/' . $cmsEditLink . '">✏️</a>' : '<del>✏️</del>';
                     $link = $link ? '<a href="/' . $link . '">🔗</a>' : '<del>🔗</del>';
                     DB::alteration_message(
@@ -112,6 +120,7 @@ class ChangedDataObjectsTask extends BuildTask
                             '<strong>LastEdited:</strong> ' . $record->LastEdited
                     );
                 }
+
                 DB::alteration_message("---");
             }
         }
@@ -122,12 +131,11 @@ class ChangedDataObjectsTask extends BuildTask
         $objectTables += $this->getBaseTables();
         foreach ($rows as $row) {
             $tableName = reset($row);
-            if (!in_array($tableName, $this->config()->get('skip_tables'))) {
-                if (!in_array($tableName, $objectTables)) {
-                    $allTables[] = $tableName;
-                }
+            if (!in_array($tableName, $this->config()->get('skip_tables')) && !in_array($tableName, $objectTables)) {
+                $allTables[] = $tableName;
             }
         }
+
         // Determine additional tables not linked to a DataObject
         $additionalTablesNoLastEdited = [];
         $additionalTablesWithLastEdited = [];
@@ -135,7 +143,8 @@ class ChangedDataObjectsTask extends BuildTask
             if (in_array($tableName, $objectTables)) {
                 continue;
             }
-            $colQuery = DB::query("SHOW COLUMNS FROM `$tableName` LIKE 'LastEdited'");
+
+            $colQuery = DB::query(sprintf("SHOW COLUMNS FROM `%s` LIKE 'LastEdited'", $tableName));
             if ($colQuery->numRecords() > 0) {
                 $additionalTablesWithLastEdited[] = $tableName;
             } else {
@@ -145,12 +154,12 @@ class ChangedDataObjectsTask extends BuildTask
 
         // For each additional table that has a LastEdited field, query for records updated since $dateBack.
         foreach ($additionalTablesWithLastEdited as $tableName) {
-            $recordsQuery = DB::query("SELECT * FROM `$tableName` WHERE LastEdited > '$dateBack'");
+            $recordsQuery = DB::query(sprintf("SELECT * FROM `%s` WHERE LastEdited > '%s'", $tableName, $dateBack));
             $recordCount = $recordsQuery->numRecords();
             if ($recordCount > 0) {
                 DB::alteration_message('<strong>Table ' . $tableName . ' has ' . $recordCount . ' record(s) updated since ' . $dateBack . '</strong>');
                 foreach ($recordsQuery as $row) {
-                    $recordId = isset($row['ID']) ? $row['ID'] : '(no ID)';
+                    $recordId = $row['ID'] ?? '(no ID)';
                     DB::alteration_message(' -- Record ID: ' . $recordId . ', LastEdited: ' . $row['LastEdited']);
                 }
             }
@@ -165,10 +174,10 @@ class ChangedDataObjectsTask extends BuildTask
 
     protected function getInputForm(float $defaultDaysBack): string
     {
-        $html = '<form method=\'get\' action=\'\'>';
-        $html .= '<label for=\'daysBack\'>Enter number of days back (e.g. 0.5, 1, 30): </label>';
-        $html .= '<input type=\'number\' name=\'daysBack\' id=\'daysBack\' value=\'' . $defaultDaysBack . '\'>';
-        $html .= '<input type=\'submit\' value=\'Submit\'>';
+        $html = "<form method='get' action=''>";
+        $html .= "<label for='daysBack'>Enter number of days back (e.g. 0.5, 1, 30): </label>";
+        $html .= "<input type='number' name='daysBack' id='daysBack' value='" . $defaultDaysBack . "'>";
+        $html .= "<input type='submit' value='Submit'>";
         $html .= '</form>';
         return $html;
     }
@@ -188,6 +197,7 @@ class ChangedDataObjectsTask extends BuildTask
             $list[$key . '_Versions'] = $tableName . '_Versions';
             $list[$key . '_Live'] = $tableName . '_Live';
         }
+
         return $list;
         // $tables = [];
 
@@ -224,6 +234,7 @@ class ChangedDataObjectsTask extends BuildTask
             if ($currentClass === DataObject::class) {
                 break;
             }
+
             // Record the table name for this class.
             $return = $currentClass;
 
