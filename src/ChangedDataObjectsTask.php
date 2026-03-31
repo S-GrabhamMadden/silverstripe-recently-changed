@@ -188,7 +188,7 @@ class ChangedDataObjectsTask extends BuildTask
         return $html;
     }
 
-    protected function getOptions(): array
+    public function getOptions(): array
     {
         return array_merge(
             parent::getOptions(),
